@@ -1,11 +1,16 @@
 import sys
 import io
 import os
+import re
 import csv
 import glob
 import json
 import time
-from flask import Flask, render_template, jsonify, request, redirect, url_for
+import random
+import statistics
+import threading
+import hashlib
+from flask import Flask, render_template, jsonify, request, redirect, url_for, make_response
 from werkzeug.utils import secure_filename
 
 # ป้องกัน crash บน Vercel ที่ stdout อาจไม่มี .buffer
@@ -73,8 +78,67 @@ ISSALE_CAT = {
     'ถอนการขาย': 'withdrawn', 'ยังไม่ถึงนัด': 'upcoming', 'รอดำเนินการ': 'upcoming',
 }
 
-# ——— In-memory cache ———
-_cache = {'props': [], 'mtimes': {}, 'province_counts': {}}
+# ——— Province → Region mapping (สำหรับ chart colors) ———
+PROVINCE_TO_REGION = {}
+for _r, _ps in PROVINCES_BY_REGION.items():
+    for _p in _ps:
+        PROVINCE_TO_REGION[_p] = _r
+
+# ——— In-memory cache + reload lock ———
+_cache = {'props': [], 'mtimes': {}, 'province_counts': {}, 'province_benchmarks': {}}
+_reload_lock = threading.Lock()
+
+
+def _cached_json(data, max_age=30):
+    """สร้าง JSON response พร้อม Cache-Control header"""
+    body    = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
+    etag    = hashlib.md5(body.encode()).hexdigest()[:16]
+    if request.headers.get('If-None-Match') == etag:
+        return make_response('', 304)
+    resp = make_response(body)
+    resp.headers['Content-Type']  = 'application/json; charset=utf-8'
+    resp.headers['Cache-Control'] = f'public, max-age={max_age}'
+    resp.headers['ETag']          = etag
+    return resp
+
+
+def parse_area(text):
+    """แปลง 'X ไร่ Y งาน Z ตร.วา' → ตารางวา (float). 1 ไร่ = 400, 1 งาน = 100 ตร.วา"""
+    if not text or text in ('-', ''):
+        return 0.0
+    m = re.search(r'(\d+\.?\d*)\s*ไร่\s*(\d+\.?\d*)\s*งาน\s*(\d+\.?\d*)', text)
+    if m:
+        return float(m.group(1)) * 400 + float(m.group(2)) * 100 + float(m.group(3))
+    m2 = re.search(r'(\d+\.?\d*)', text)
+    return float(m2.group(1)) if m2 else 0.0
+
+
+def _compute_benchmarks(props):
+    """คำนวณ median price_per_sqwah ต่อจังหวัด (robust ต่อ outliers)"""
+    acc = {}
+    for p in props:
+        pv = p.get('จังหวัด', '')
+        ppsw = p.get('price_per_sqwah', 0)
+        if pv and ppsw > 0:
+            acc.setdefault(pv, []).append(ppsw)
+    result = {}
+    for pv, vals in acc.items():
+        vals.sort()
+        n = len(vals)
+        # ตัด outliers ด้วย IQR
+        q1, q3 = vals[n // 4], vals[n * 3 // 4]
+        iqr = q3 - q1
+        filtered = [v for v in vals if q1 - 1.5 * iqr <= v <= q3 + 1.5 * iqr] or vals
+        mean_v = sum(filtered) / len(filtered)
+        med_v = statistics.median(filtered)
+        result[pv] = {
+            'mean':   round(mean_v),
+            'median': round(med_v),
+            'count':  n,
+            'p25':    vals[n // 4],
+            'p75':    vals[n * 3 // 4],
+        }
+    return result
 
 
 def get_data_files():
@@ -113,6 +177,9 @@ def parse_row(row, idx):
 
     no_bid = sum(1 for a in auctions if a['category'] == 'no_bidder')
 
+    area_sqwah     = parse_area(row.get('เนื้อที่', ''))
+    price_per_sqwah = round(price / area_sqwah) if area_sqwah > 0 else 0
+
     return {
         'id': idx,
         'คดีแดง':     row.get('คดีแดง', '').strip(),
@@ -137,10 +204,13 @@ def parse_row(row, idx):
         'โทรศัพท์':  row.get('โทรศัพท์สำนักงาน', '').strip(),
         'รหัสทรัพย์': row.get('รหัสทรัพย์ (auc_asset_gen)', '').strip(),
         'วันที่ตรวจสอบ': row.get('วันที่ตรวจสอบ', '').strip(),
-        'auctions':      auctions,
-        'current_status': cur,
-        'total_rounds':   len(auctions),
+        'auctions':        auctions,
+        'current_status':  cur,
+        'total_rounds':    len(auctions),
         'no_bidder_rounds': no_bid,
+        'area_sqwah':      round(area_sqwah, 1),
+        'price_per_sqwah': price_per_sqwah,
+        'vs_pct':          None,   # filled in second pass by load_all()
     }
 
 
@@ -148,26 +218,43 @@ def load_all():
     if not needs_reload():
         return _cache['props']
 
-    files = get_data_files()
-    props, mtimes, pcounts = [], {}, {}
+    with _reload_lock:
+        # double-check หลังได้ lock (ป้องกัน duplicate reload)
+        if not needs_reload():
+            return _cache['props']
 
-    for fpath in files:
-        try:
-            with open(fpath, encoding='utf-8-sig') as f:
-                for row in csv.DictReader(f):
-                    p = parse_row(row, len(props))
-                    props.append(p)
-                    pv = p['จังหวัด'] or _province_from_filename(fpath)
-                    pcounts[pv] = pcounts.get(pv, 0) + 1
-            mtimes[fpath] = os.path.getmtime(fpath)
-        except Exception as e:
-            print(f"[WARN] {fpath}: {e}")
+        files = get_data_files()
+        props, mtimes, pcounts = [], {}, {}
 
-    _cache['props']           = props
-    _cache['mtimes']          = mtimes
-    _cache['province_counts'] = pcounts
-    print(f"[Cache] โหลด {len(props)} รายการ จาก {len(files)} ไฟล์")
-    return props
+        for fpath in files:
+            try:
+                with open(fpath, encoding='utf-8-sig') as f:
+                    for row in csv.DictReader(f):
+                        p = parse_row(row, len(props))
+                        props.append(p)
+                        pv = p['จังหวัด'] or _province_from_filename(fpath)
+                        pcounts[pv] = pcounts.get(pv, 0) + 1
+                mtimes[fpath] = os.path.getmtime(fpath)
+            except Exception as e:
+                print(f"[WARN] {fpath}: {e}")
+
+        # คำนวณ benchmark ราคา/ตร.วา ต่อจังหวัด
+        benchmarks = _compute_benchmarks(props)
+
+        # Second pass: ใส่ vs_pct เปรียบเทียบกับ median ของจังหวัด
+        for p in props:
+            pv   = p.get('จังหวัด', '')
+            ppsw = p.get('price_per_sqwah', 0)
+            med  = benchmarks.get(pv, {}).get('median', 0)
+            if ppsw > 0 and med > 0:
+                p['vs_pct'] = round((ppsw - med) / med * 100, 1)
+
+        _cache['props']               = props
+        _cache['mtimes']              = mtimes
+        _cache['province_counts']     = pcounts
+        _cache['province_benchmarks'] = benchmarks
+        print(f"[Cache] โหลด {len(props)} รายการ จาก {len(files)} ไฟล์ ({len(benchmarks)} จังหวัดมี benchmark)")
+        return props
 
 
 def _province_from_filename(fpath):
@@ -194,10 +281,13 @@ def filter_sort_props(props, province='', asset_type='', amphur='', status='', s
                 continue
         out.append(p)
 
-    if sort == 'price_asc':    out.sort(key=lambda x: x['ราคา'])
-    elif sort == 'price_desc': out.sort(key=lambda x: -x['ราคา'])
-    elif sort == 'no_bidder':  out.sort(key=lambda x: -x['no_bidder_rounds'])
+    if sort == 'price_asc':     out.sort(key=lambda x: x['ราคา'])
+    elif sort == 'price_desc':  out.sort(key=lambda x: -x['ราคา'])
+    elif sort == 'no_bidder':   out.sort(key=lambda x: -x['no_bidder_rounds'])
     elif sort == 'deposit_asc': out.sort(key=lambda x: x['เงินประกัน'])
+    elif sort == 'ppsw_asc':    out.sort(key=lambda x: x['price_per_sqwah'] or 99999999)
+    elif sort == 'ppsw_desc':   out.sort(key=lambda x: -(x['price_per_sqwah'] or 0))
+    elif sort == 'deal':        out.sort(key=lambda x: x['vs_pct'] if x['vs_pct'] is not None else 999)
     return out
 
 
@@ -220,12 +310,12 @@ def api_provinces():
             {'name': p, 'count': pc.get(p, 0), 'has_data': p in pc}
             for p in provs
         ]
-    return jsonify({
+    return _cached_json({
         'by_region': result,
         'total_provinces_with_data': len(pc),
         'total_provinces': len(ALL_PROVINCES),
         'province_counts': pc,
-    })
+    }, max_age=60)
 
 
 @app.route('/api/data')
@@ -265,6 +355,11 @@ def api_data():
         if a and a != '-':
             amphur_counts[a] = amphur_counts.get(a, 0) + 1
 
+    # avg price/ตร.วา สำหรับ filtered set (ไม่รวม 0)
+    ppsw_vals   = [p['price_per_sqwah'] for p in filtered if p['price_per_sqwah'] > 0]
+    avg_ppsw    = round(sum(ppsw_vals) / len(ppsw_vals)) if ppsw_vals else 0
+    median_ppsw = round(statistics.median(ppsw_vals)) if ppsw_vals else 0
+
     return jsonify({
         'properties':   page_props,
         'total':        total,
@@ -277,8 +372,94 @@ def api_data():
             'type_counts':      type_counts,
             'status_counts':    status_counts,
             'amphur_counts':    dict(sorted(amphur_counts.items(), key=lambda x: -x[1])),
+            'avg_price_per_sqwah':    avg_ppsw,
+            'median_price_per_sqwah': median_ppsw,
         },
     })
+
+
+@app.route('/api/market-charts')
+def api_market_charts():
+    """Data สำหรับ Chart 1 (ranking), Chart 2 (histogram), Chart 4 (scatter)"""
+    province = request.args.get('province', '')
+    props     = load_all()
+    benchmarks = _cache.get('province_benchmarks', {})
+
+    # ── Chart 1: Province rankings (sorted by median desc) ──
+    province_rankings = [
+        {
+            'province': pv,
+            'median':   b['median'],
+            'mean':     b['mean'],
+            'count':    b['count'],
+            'region':   PROVINCE_TO_REGION.get(pv, 'อื่นๆ'),
+        }
+        for pv, b in sorted(benchmarks.items(), key=lambda x: -x[1]['median'])
+    ]
+
+    # ── Chart 2: Histogram bins ──
+    pool = [p['price_per_sqwah'] for p in props
+            if p['price_per_sqwah'] > 0
+            and (not province or p['จังหวัด'] == province)]
+
+    hist_bins, dist_stats = [], {}
+    if pool:
+        cap    = min(statistics.quantiles(pool, n=100)[94], 500_000)  # 95th percentile cap
+        bins   = 20
+        bsize  = cap / bins
+        counts = [0] * bins
+        for v in pool:
+            if v <= cap:
+                counts[min(int(v / bsize), bins - 1)] += 1
+        hist_bins = [
+            {'label': f"{int(i * bsize / 1000)}k–{int((i+1) * bsize / 1000)}k", 'count': c}
+            for i, c in enumerate(counts)
+        ]
+        dist_stats = {
+            'min':    round(min(pool)),
+            'max':    round(max(pool)),
+            'median': round(statistics.median(pool)),
+            'mean':   round(sum(pool) / len(pool)),
+            'count':  len(pool),
+        }
+
+    # ── Chart 4: Scatter sample (max 600 pts) ──
+    scatter_src = [p for p in props
+                   if p['price_per_sqwah'] > 0 and p['area_sqwah'] > 0
+                   and (not province or p['จังหวัด'] == province)]
+    if len(scatter_src) > 600:
+        scatter_src = random.sample(scatter_src, 600)
+    scatter_data = [
+        {'x': p['area_sqwah'], 'y': p['price_per_sqwah'],
+         'type': p['ประเภท'], 'no_bid': p['no_bidder_rounds'], 'label': p['คดีแดง']}
+        for p in scatter_src
+    ]
+
+    # ── DDProperty benchmark (ถ้ามีไฟล์) ──
+    ddprop = {}
+    bf = os.path.join(DATA_DIR, 'market_benchmark.json')
+    if os.path.exists(bf):
+        with open(bf, encoding='utf-8') as f:
+            ddprop = json.load(f).get('provinces', {})
+
+    return _cached_json({
+        'province_rankings': province_rankings,
+        'histogram':         hist_bins,
+        'dist_stats':        dist_stats,
+        'scatter':           scatter_data,
+        'ddprop':            ddprop,
+        'benchmarks':        benchmarks,
+    }, max_age=120)
+
+
+@app.route('/api/market-stats')
+def api_market_stats():
+    """ข้อมูล DDProperty market benchmark"""
+    bf = os.path.join(DATA_DIR, 'market_benchmark.json')
+    if os.path.exists(bf):
+        with open(bf, encoding='utf-8') as f:
+            return jsonify(json.load(f))
+    return jsonify({'provinces': {}, 'generated_at': None})
 
 
 @app.route('/api/upload', methods=['POST'])

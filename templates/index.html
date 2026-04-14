@@ -79,6 +79,30 @@
 
     /* ─── Icon helper (ใช้กับ SVG ที่ render จาก initIcons / ico()) ─── */
     [data-lucide], svg[aria-hidden] { display:inline-block; vertical-align:middle; flex-shrink:0; }
+
+    /* ─── Market Panel ─── */
+    #market-panel { transition: max-height .28s cubic-bezier(.4,0,.2,1), opacity .2s ease; overflow:hidden; }
+    #market-panel.collapsed { max-height:0; opacity:0; pointer-events:none; }
+    #market-panel.expanded  { max-height:2000px; opacity:1; }
+
+    /* ─── Value Badge ─── */
+    .vbadge-good { background:#dcfce7; color:#15803d; }
+    .vbadge-bad  { background:#fee2e2; color:#b91c1c; }
+    .vbadge-ok   { background:#f1f5f9; color:#475569; }
+    .vbadge-na   { display:none; }
+
+    /* ─── Price per sqwah row ─── */
+    .ppsw-row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:5px; }
+    .ppsw-chip { font-size:11px; font-weight:600; background:#eff6ff; color:#1d4ed8;
+                  padding:2px 8px; border-radius:999px; white-space:nowrap; }
+
+    /* ─── Chart container ─── */
+    .chart-card { background:#fff; border-radius:14px; box-shadow:0 1px 6px rgba(0,0,0,.07); padding:16px 18px; }
+
+    /* ─── Market toggle button ─── */
+    #market-toggle { border:1.5px solid #e2e8f0; transition:border-color .15s,background .15s; }
+    #market-toggle:hover  { border-color:#94a3b8; background:#f8fafc; }
+    #market-toggle.active { border-color:#3b82f6; background:#eff6ff; }
   </style>
 </head>
 <body class="bg-slate-50 min-h-screen flex flex-col overflow-x-hidden">
@@ -164,7 +188,7 @@
     <div class="p-3 md:p-4 max-w-screen-xl mx-auto mb-bnav">
 
       <!-- STATS ROW -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-4">
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-2.5 mb-4">
         <div class="stat-card col-span-2 md:col-span-1">
           <div class="flex items-center gap-2 mb-1">
             <div class="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center">
@@ -202,6 +226,16 @@
           </div>
           <p id="st-sold" class="text-xl font-bold text-slate-800">—</p>
         </div>
+        <div class="stat-card">
+          <div class="flex items-center gap-2 mb-1">
+            <div class="w-7 h-7 bg-indigo-50 rounded-lg flex items-center justify-center">
+              <i data-lucide="ruler" class="w-3.5 h-3.5 text-indigo-500"></i>
+            </div>
+            <p class="text-xs text-indigo-500 font-semibold">ราคากลาง/ตร.วา</p>
+          </div>
+          <p id="st-ppsw" class="text-xl font-bold text-slate-800">—</p>
+          <p class="text-xs text-slate-400">บาท (median)</p>
+        </div>
       </div>
 
       <!-- ─── TYPE TABS (แสดงทุก screen ขนาด) ─── -->
@@ -211,6 +245,82 @@
           <button class="fchip" data-t="ที่ดินพร้อมสิ่งปลูกสร้าง"><i data-lucide="home" class="w-3 h-3"></i>ที่ดิน+สิ่งปลูก</button>
           <button class="fchip" data-t="ที่ดินว่างเปล่า"><i data-lucide="trees" class="w-3 h-3"></i>ว่างเปล่า</button>
           <button class="fchip" data-t="ห้องชุด"><i data-lucide="building-2" class="w-3 h-3"></i>ห้องชุด</button>
+        </div>
+      </div>
+
+      <!-- ═══ MARKET OVERVIEW PANEL ═══ -->
+      <div class="mb-3">
+        <button id="market-toggle" onclick="toggleMarket()"
+          class="w-full flex items-center justify-between bg-white rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-700">
+          <span class="flex items-center gap-2.5">
+            <span class="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+              <i data-lucide="trending-up" class="w-3.5 h-3.5 text-blue-500"></i>
+            </span>
+            ภาพรวมตลาด
+            <span id="market-sub" class="text-xs font-normal text-slate-400 hidden md:inline">— เปิดเพื่อดูกราฟเปรียบเทียบราคา</span>
+          </span>
+          <i data-lucide="chevron-down" id="market-chevron" class="w-4 h-4 text-slate-400 transition-transform duration-200"></i>
+        </button>
+
+        <div id="market-panel" class="collapsed mt-2 space-y-3">
+          <!-- Row 1: Ranking + Histogram -->
+          <div class="grid grid-cols-1 lg:grid-cols-5 gap-3">
+            <!-- Chart 1: Province Ranking (col-span 3) -->
+            <div class="chart-card lg:col-span-3 flex flex-col">
+              <div class="flex items-start justify-between mb-1">
+                <div>
+                  <h3 class="text-sm font-bold text-slate-700">ราคาประเมิน/ตร.วา ทุกจังหวัด</h3>
+                  <p class="text-xs text-slate-400 mt-0.5">ค่ากลาง (median) — แท่งสีม่วงคือจังหวัดที่เลือก</p>
+                </div>
+                <span id="ranking-ddprop-badge" class="hidden badge bg-amber-100 text-amber-700 text-xs">+ DDProperty</span>
+              </div>
+              <div id="chart-ranking-wrap" class="overflow-y-auto flex-1" style="max-height:420px">
+                <canvas id="chart-ranking"></canvas>
+              </div>
+            </div>
+            <!-- Chart 2: Distribution Histogram (col-span 2) -->
+            <div class="chart-card lg:col-span-2 flex flex-col">
+              <div class="mb-1">
+                <h3 class="text-sm font-bold text-slate-700">การกระจายราคา/ตร.วา</h3>
+                <p id="chart-dist-sub" class="text-xs text-slate-400 mt-0.5">ทั้งหมด — เลือกจังหวัดเพื่อดูเฉพาะพื้นที่</p>
+              </div>
+              <div class="relative flex-1" style="min-height:200px">
+                <canvas id="chart-dist"></canvas>
+              </div>
+              <!-- Stats row -->
+              <div class="grid grid-cols-3 gap-2 mt-3">
+                <div class="text-center bg-slate-50 rounded-xl py-2 px-1">
+                  <p class="text-xs text-slate-400">ต่ำสุด</p>
+                  <p id="dist-min" class="text-sm font-bold text-slate-700">—</p>
+                </div>
+                <div class="text-center bg-blue-50 rounded-xl py-2 px-1">
+                  <p class="text-xs text-blue-400 font-semibold">ค่ากลาง</p>
+                  <p id="dist-median" class="text-sm font-bold text-blue-700">—</p>
+                </div>
+                <div class="text-center bg-slate-50 rounded-xl py-2 px-1">
+                  <p class="text-xs text-slate-400">สูงสุด</p>
+                  <p id="dist-max" class="text-sm font-bold text-slate-700">—</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Row 2: Scatter Plot -->
+          <div class="chart-card">
+            <div class="flex items-start justify-between mb-1">
+              <div>
+                <h3 class="text-sm font-bold text-slate-700">เนื้อที่ (ตร.วา) vs ราคาประเมิน/ตร.วา</h3>
+                <p class="text-xs text-slate-400 mt-0.5">ขนาดจุด = จำนวนนัดพลาด · สีตามประเภทที่ดิน · สุ่มตัวอย่าง 600 รายการ</p>
+              </div>
+              <div class="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+                <span class="flex items-center gap-1 text-xs text-slate-500"><span class="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span>ที่ดิน+สิ่งปลูก</span>
+                <span class="flex items-center gap-1 text-xs text-slate-500"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>ว่างเปล่า</span>
+                <span class="flex items-center gap-1 text-xs text-slate-500"><span class="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block"></span>ห้องชุด</span>
+              </div>
+            </div>
+            <div class="relative" style="height:280px">
+              <canvas id="chart-scatter"></canvas>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -247,8 +357,11 @@
             <i data-lucide="arrow-up-down" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none"></i>
             <select id="f-sort" class="pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-400 text-slate-600 bg-white">
               <option value="default">เรียง: ค่าเริ่มต้น</option>
-              <option value="price_asc">ราคา น้อย→มาก</option>
-              <option value="price_desc">ราคา มาก→น้อย</option>
+              <option value="deal">โอกาสดีที่สุด (ต่ำกว่าเฉลี่ย)</option>
+              <option value="ppsw_asc">ราคา/ตร.วา น้อย→มาก</option>
+              <option value="ppsw_desc">ราคา/ตร.วา มาก→น้อย</option>
+              <option value="price_asc">ราคารวม น้อย→มาก</option>
+              <option value="price_desc">ราคารวม มาก→น้อย</option>
               <option value="no_bidder">นัดพลาดมากสุด</option>
               <option value="deposit_asc">เงินประกัน น้อย→มาก</option>
             </select>
@@ -270,8 +383,11 @@
             <i data-lucide="arrow-up-down" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"></i>
             <select id="f-sort-m" class="w-full pl-8 pr-2 py-2 bg-white border border-slate-200 rounded-xl text-sm outline-none text-slate-600">
               <option value="default">เรียงตาม</option>
-              <option value="price_asc">ราคา น้อย→มาก</option>
-              <option value="price_desc">ราคา มาก→น้อย</option>
+              <option value="deal">โอกาสดีที่สุด</option>
+              <option value="ppsw_asc">ราคา/ตร.วา น้อย→มาก</option>
+              <option value="ppsw_desc">ราคา/ตร.วา มาก→น้อย</option>
+              <option value="price_asc">ราคารวม น้อย→มาก</option>
+              <option value="price_desc">ราคารวม มาก→น้อย</option>
               <option value="no_bidder">นัดพลาดมากสุด</option>
               <option value="deposit_asc">เงินประกัน น้อยสุด</option>
             </select>
@@ -581,6 +697,11 @@ async function fetchData(resetPage=false) {
     document.getElementById('result-count').textContent   = cnt;
     document.getElementById('result-count-m').textContent = cnt;
     buildAmphurFilter(data.stats.amphur_counts);
+    // debounce chart refresh (ป้องกัน fetch ซ้ำตอน type filter)
+    if (marketOpen && marketLoaded) {
+      clearTimeout(chartDebounce);
+      chartDebounce = setTimeout(() => fetchMarketCharts(true), 400);
+    }
   } catch(e) { console.error(e); }
   finally {
     document.getElementById('loader').classList.add('hidden');
@@ -610,6 +731,12 @@ function renderStats(s) {
   const tot = Object.values(s.type_counts).reduce((a,b)=>a+b,0);
   document.getElementById('hd-total').innerHTML =
     `${ico('database','w-3 h-3 inline')} ${tot.toLocaleString()}`;
+  // ราคา/ตร.วา median ใน stat row
+  const ppswEl = document.getElementById('st-ppsw');
+  if (ppswEl && s.median_price_per_sqwah) {
+    const v = s.median_price_per_sqwah;
+    ppswEl.textContent = v >= 10000 ? `${(v/1000).toFixed(0)}k` : v.toLocaleString();
+  }
 }
 
 // ── SIDEBAR ──
@@ -697,6 +824,22 @@ function cardHTML(p) {
       <div class="mt-auto">
         <p class="text-lg font-bold text-blue-600 leading-none">${p['ราคา_text']} <span class="text-xs font-normal text-slate-400">บาท</span></p>
         <p class="text-xs text-slate-400 mt-0.5 flex items-center gap-1">${ico('shield','w-3 h-3')}ประกัน <span class="font-semibold text-slate-600">${p['เงินประกัน_text']} บาท</span></p>
+        ${(() => {
+          const ppsw = p['price_per_sqwah'];
+          const area = p['area_sqwah'];
+          const vp   = p['vs_pct'];
+          if (!ppsw) return '';
+          const ppswLabel = ppsw >= 10000
+            ? (ppsw/1000).toFixed(0)+'k บาท/ตร.วา'
+            : ppsw.toLocaleString()+' บาท/ตร.วา';
+          let vBadge = '';
+          if (vp !== null && vp !== undefined) {
+            if (vp <= -10)      vBadge = `<span class="badge vbadge-good">${ico('trending-up','w-2.5 h-2.5')}ต่ำกว่าเฉลี่ย ${Math.abs(vp)}%</span>`;
+            else if (vp >= 15)  vBadge = `<span class="badge vbadge-bad">${ico('alert-triangle','w-2.5 h-2.5')}สูงกว่าเฉลี่ย ${vp}%</span>`;
+          }
+          const areaText = area > 0 ? `${area} ตร.วา · ` : '';
+          return `<div class="ppsw-row"><span class="ppsw-chip">${ico('ruler','w-2.5 h-2.5 inline')} ${areaText}${ppswLabel}</span>${vBadge}</div>`;
+        })()}
         ${p.auctions.length?`<div class="flex gap-1 mt-2 items-center">${dots}<span class="text-xs text-slate-300 ml-1">${p.total_rounds} นัด</span></div>`:''}
       </div>
     </div>
@@ -983,11 +1126,247 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey||e.ctrlKey) && e.key==='k') { e.preventDefault(); toggleMobileSearch(); document.getElementById('f-search').focus(); }
 });
 
+// ══════════════════════════════════════════════
+// ── MARKET CHARTS ──
+// ══════════════════════════════════════════════
+const REGION_COLORS = {
+  'ภาคเหนือ':          'rgba(14,165,233,.85)',
+  'ภาคเหนือตอนล่าง':   'rgba(99,102,241,.85)',
+  'ภาคกลาง':           'rgba(20,184,166,.85)',
+  'ภาคตะวันตก':        'rgba(168,85,247,.85)',
+  'ภาคตะวันออก':       'rgba(245,158,11,.85)',
+  'ภาคอีสาน':          'rgba(34,197,94,.85)',
+  'ภาคใต้':            'rgba(249,115,22,.85)',
+};
+const REGION_BORDERS = {
+  'ภาคเหนือ':'#0EA5E9','ภาคเหนือตอนล่าง':'#6366F1','ภาคกลาง':'#14B8A6',
+  'ภาคตะวันตก':'#A855F7','ภาคตะวันออก':'#F59E0B','ภาคอีสาน':'#22C55E','ภาคใต้':'#F97316',
+};
+const TYPE_COLORS = {
+  'ที่ดินพร้อมสิ่งปลูกสร้าง': {bg:'rgba(59,130,246,.65)',  bd:'#3B82F6'},
+  'ที่ดินว่างเปล่า':           {bg:'rgba(16,185,129,.65)',  bd:'#10B981'},
+  'ห้องชุด':                  {bg:'rgba(168,85,247,.65)', bd:'#A855F7'},
+};
+const SELECTED_COLOR   = 'rgba(99,102,241,.95)';
+const SELECTED_BORDER  = '#4F46E5';
+const DDPROP_COLOR     = 'rgba(245,158,11,.75)';
+
+let chartRanking = null, chartDist = null, chartScatter = null;
+let marketLoaded = false;
+let marketOpen   = localStorage.getItem('marketOpen') === '1';
+let chartDebounce = null;
+
+function initCharts() {
+  Chart.defaults.font.family = "'Sarabun', sans-serif";
+  Chart.defaults.font.size   = 12;
+
+  // Chart 1 — Province Ranking (horizontal bar)
+  chartRanking = new Chart(document.getElementById('chart-ranking'), {
+    type: 'bar',
+    data: { labels:[], datasets:[
+      { label:'ราคาประเมิน/ตร.วา (LED)', data:[], backgroundColor:[], borderColor:[], borderWidth:1.5, borderRadius:4 },
+      { label:'DDProperty (ตลาด)', data:[], backgroundColor:DDPROP_COLOR, borderColor:'#F59E0B', borderWidth:1.5, borderRadius:4 },
+    ]},
+    options: {
+      indexAxis: 'y', responsive:true, maintainAspectRatio:false,
+      animation: { duration:400 },
+      plugins: {
+        legend: { display:true, position:'top', labels:{ boxWidth:12, padding:8, font:{size:11} } },
+        tooltip: {
+          callbacks: {
+            label: ctx => `  ${ctx.dataset.label}: ${Number(ctx.parsed.x).toLocaleString()} บาท/ตร.วา`,
+          },
+        },
+      },
+      scales: {
+        x: { grid:{color:'rgba(0,0,0,.05)'}, ticks:{ callback:v=>`${(v/1000).toFixed(0)}k`, font:{size:10} } },
+        y: { ticks:{ font:{size:10}, autoSkip:false } },
+      },
+    },
+  });
+
+  // Chart 2 — Histogram
+  chartDist = new Chart(document.getElementById('chart-dist'), {
+    type: 'bar',
+    data: { labels:[], datasets:[
+      { label:'จำนวนรายการ', data:[], backgroundColor:[], borderColor:[], borderWidth:1, borderRadius:3 },
+    ]},
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      animation: { duration:350 },
+      plugins: { legend:{ display:false },
+        tooltip: { callbacks:{ label: ctx=>`  ${ctx.parsed.y.toLocaleString()} รายการ` } },
+      },
+      scales: {
+        x: { grid:{display:false}, ticks:{ font:{size:9}, maxRotation:45 } },
+        y: { grid:{color:'rgba(0,0,0,.04)'}, ticks:{ font:{size:10} } },
+      },
+    },
+  });
+
+  // Chart 4 — Scatter
+  chartScatter = new Chart(document.getElementById('chart-scatter'), {
+    type: 'scatter',
+    data: { datasets:[] },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      animation: { duration:300 },
+      plugins: {
+        legend:{ display:false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const d = ctx.raw;
+              return [`  คดี: ${d.label||'—'}`, `  เนื้อที่: ${d.x} ตร.วา`, `  ราคา/ตร.วา: ${Number(d.y).toLocaleString()}`, `  นัดพลาด: ${d.no_bid||0} ครั้ง`];
+            },
+          },
+        },
+      },
+      scales: {
+        x: { type:'logarithmic', grid:{color:'rgba(0,0,0,.04)'}, title:{display:true,text:'เนื้อที่ (ตร.วา)',font:{size:10}},
+             ticks:{ callback:v=> v>=1000?`${v/1000}k`:v, font:{size:9} } },
+        y: { grid:{color:'rgba(0,0,0,.04)'}, title:{display:true,text:'ราคาประเมิน/ตร.วา',font:{size:10}},
+             ticks:{ callback:v=>`${(v/1000).toFixed(0)}k`, font:{size:9} } },
+      },
+    },
+  });
+}
+
+function renderRankingChart(rankings, ddprop) {
+  const labels = rankings.map(r => r.province);
+  const values = rankings.map(r => r.median);
+  const colors = rankings.map(r =>
+    r.province === state.province ? SELECTED_COLOR : (REGION_COLORS[r.region] || 'rgba(148,163,184,.7)')
+  );
+  const borders = rankings.map(r =>
+    r.province === state.province ? SELECTED_BORDER : (REGION_BORDERS[r.region] || '#94a3b8')
+  );
+  chartRanking.data.labels = labels;
+  chartRanking.data.datasets[0].data = values;
+  chartRanking.data.datasets[0].backgroundColor = colors;
+  chartRanking.data.datasets[0].borderColor = borders;
+
+  // DDProperty overlay
+  const ddVals = labels.map(pv => {
+    const d = ddprop[pv];
+    if (!d) return null;
+    // convert price/sqm → price/sqwah (1 ตร.วา = 4 ตร.ม.)
+    const land = d.land?.avg_price_sqm;
+    return land ? Math.round(land * 4) : null;
+  });
+  const hasDd = ddVals.some(v => v !== null);
+  chartRanking.data.datasets[1].data = hasDd ? ddVals : [];
+  document.getElementById('ranking-ddprop-badge').classList.toggle('hidden', !hasDd);
+
+  // Dynamic canvas height
+  const barH = 22, minH = 300;
+  const canvasH = Math.max(minH, labels.length * barH + 60);
+  chartRanking.canvas.style.height = canvasH + 'px';
+  chartRanking.canvas.height = canvasH;
+  chartRanking.resize();
+  chartRanking.update('none');
+}
+
+function renderDistChart(bins, stats) {
+  if (!bins || !bins.length) return;
+  const n = bins.length;
+  // gradient green → yellow → red
+  const colors = bins.map((_, i) => {
+    const t = i / (n - 1);
+    if (t < .5) {
+      const g = Math.round(185 + (234 - 185) * (1 - t * 2));
+      return `rgba(16,${g},129,.75)`;
+    } else {
+      const t2 = (t - .5) * 2;
+      const r = Math.round(245 * t2 + 16 * (1 - t2));
+      return `rgba(${r},${Math.round(158 * (1 - t2))},11,.75)`;
+    }
+  });
+  chartDist.data.labels = bins.map(b => b.label);
+  chartDist.data.datasets[0].data   = bins.map(b => b.count);
+  chartDist.data.datasets[0].backgroundColor = colors;
+  chartDist.data.datasets[0].borderColor = colors.map(c => c.replace('.75','1'));
+  chartDist.update('none');
+
+  // Stats below chart
+  const fmt = v => v >= 10000 ? `${(v/1000).toFixed(0)}k` : v.toLocaleString();
+  if (stats && stats.count) {
+    document.getElementById('dist-min').textContent    = fmt(stats.min);
+    document.getElementById('dist-median').textContent = fmt(stats.median);
+    document.getElementById('dist-max').textContent    = fmt(stats.max);
+    document.getElementById('chart-dist-sub').textContent =
+      `${state.province || 'ทั้งหมด'} · ${stats.count.toLocaleString()} รายการ · ค่าเฉลี่ย ${fmt(stats.mean)}`;
+  }
+}
+
+function renderScatterChart(points) {
+  if (!points || !points.length) { chartScatter.data.datasets=[]; chartScatter.update('none'); return; }
+  const groups = {};
+  points.forEach(p => {
+    const k = p.type || 'อื่นๆ';
+    if (!groups[k]) groups[k] = [];
+    groups[k].push({ x:p.x, y:p.y, label:p.label, no_bid:p.no_bid });
+  });
+  chartScatter.data.datasets = Object.entries(groups).map(([type, pts]) => {
+    const c = TYPE_COLORS[type] || {bg:'rgba(148,163,184,.5)',bd:'#94a3b8'};
+    return {
+      label: type,
+      data: pts,
+      backgroundColor: c.bg,
+      borderColor: c.bd,
+      borderWidth: 1,
+      pointRadius: pts.map(p => Math.max(3, 3 + (p.no_bid || 0) * 1.5)),
+      pointHoverRadius: pts.map(p => Math.max(5, 5 + (p.no_bid || 0) * 1.5)),
+    };
+  });
+  chartScatter.update('none');
+}
+
+async function fetchMarketCharts(force=false) {
+  if (!marketOpen && !force) return;
+  const res  = await fetch(`/api/market-charts?province=${encodeURIComponent(state.province)}`);
+  const data = await res.json();
+  renderRankingChart(data.province_rankings, data.ddprop || {});
+  renderDistChart(data.histogram, data.dist_stats);
+  renderScatterChart(data.scatter);
+}
+
+function toggleMarket() {
+  marketOpen = !marketOpen;
+  localStorage.setItem('marketOpen', marketOpen ? '1' : '0');
+  const panel   = document.getElementById('market-panel');
+  const chevron = document.getElementById('market-chevron');
+  const toggle  = document.getElementById('market-toggle');
+  panel.classList.toggle('collapsed', !marketOpen);
+  panel.classList.toggle('expanded',  marketOpen);
+  chevron.style.transform = marketOpen ? 'rotate(180deg)' : '';
+  toggle.classList.toggle('active', marketOpen);
+  if (marketOpen && !marketLoaded) {
+    marketLoaded = true;
+    initCharts();
+    fetchMarketCharts(true);
+  } else if (marketOpen) {
+    fetchMarketCharts(true);
+  }
+}
+
 // ── INIT ──
 (async () => {
   tryIcons();
   await fetchProvinces();
   await fetchData();
+  // เปิด market panel อัตโนมัติถ้าเคยเปิดไว้
+  if (marketOpen) {
+    const panel   = document.getElementById('market-panel');
+    const chevron = document.getElementById('market-chevron');
+    const toggle  = document.getElementById('market-toggle');
+    panel.classList.remove('collapsed'); panel.classList.add('expanded');
+    chevron.style.transform = 'rotate(180deg)';
+    toggle.classList.add('active');
+    marketLoaded = true;
+    initCharts();
+    fetchMarketCharts(true);
+  }
 })();
 </script>
 </body>
