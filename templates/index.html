@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="theme-color" content="#0f172a"/>
+  <title>ระบบข้อมูลทรัพย์บังคับคดี</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Lucide CDN removed — replaced by inline ico() + initIcons() below -->
+  <style>
+    * { font-family: 'Sarabun', sans-serif; }
+
+    /* ─── Cards ─── */
+    .card-hover { transition: transform .15s ease, box-shadow .15s ease; }
+    .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(0,0,0,.11); }
+    .card-hover:active { transform: scale(.98); }
+
+    /* ─── Badges ─── */
+    .badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap; line-height:1.5; }
+
+    /* ─── Status dot ─── */
+    .sdot { width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
+
+    /* ─── Image placeholder shimmer ─── */
+    .img-ph { background: linear-gradient(135deg,#f1f5f9,#e2e8f0); }
+
+    /* ─── Sidebar ─── */
+    #sidebar { transition: transform .22s cubic-bezier(.4,0,.2,1); }
+    .sidebar-prov { cursor:pointer; display:flex; align-items:center; gap:7px; padding:6px 8px; border-radius:8px; font-size:13px; transition:background .12s; min-height:36px; }
+    .sidebar-prov:hover  { background:#f1f5f9; }
+    .sidebar-prov:active { background:#e2e8f0; }
+    .sidebar-prov.active { background:#dbeafe; color:#1d4ed8; font-weight:600; }
+    .sidebar-prov .cnt   { margin-left:auto; font-size:11px; color:#94a3b8; }
+    .sidebar-prov.active .cnt { color:#3b82f6; }
+    .region-head { font-size:10px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.08em; padding:10px 8px 4px; }
+
+    /* ─── Filter chip ─── */
+    .fchip { cursor:pointer; display:inline-flex; align-items:center; gap:4px; padding:5px 13px; border-radius:999px; font-size:12px; font-weight:500; border:1.5px solid #e2e8f0; color:#64748b; transition:all .12s; white-space:nowrap; min-height:34px; }
+    .fchip.active  { background:#2563eb; border-color:#2563eb; color:#fff; }
+    .fchip:hover:not(.active) { border-color:#94a3b8; color:#334155; }
+
+    /* ─── Stat card ─── */
+    .stat-card { background:#fff; border-radius:12px; padding:14px 16px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+
+    /* ─── Detail panel ─── */
+    #detail-panel { transition: transform .25s cubic-bezier(.4,0,.2,1); }
+    #detail-panel.show { transform: none !important; }
+
+    /* ─── Bottom Sheet animation ─── */
+    .sheet-in { animation: sheetUp .25s cubic-bezier(.4,0,.2,1) forwards; }
+    @keyframes sheetUp { from{transform:translateY(100%);opacity:0} to{transform:translateY(0);opacity:1} }
+
+    /* ─── Filter drawer ─── */
+    #filter-drawer { transition: max-height .2s ease, opacity .2s ease; overflow:hidden; }
+    #filter-drawer.collapsed { max-height:0; opacity:0; pointer-events:none; }
+    #filter-drawer.expanded  { max-height:400px; opacity:1; }
+
+    /* ─── Upload zone ─── */
+    .upload-zone { border:2px dashed #cbd5e1; border-radius:12px; transition:border-color .15s,background .15s; }
+    .upload-zone.drag-over { border-color:#3b82f6; background:#eff6ff; }
+
+    /* ─── Tooltip ─── */
+    .tt-wrap .tt { display:none; position:absolute; bottom:calc(100% + 4px); left:50%; transform:translateX(-50%); background:#1e293b; color:#fff; font-size:11px; border-radius:6px; padding:4px 8px; white-space:nowrap; z-index:99; pointer-events:none; }
+    .tt-wrap:hover .tt { display:block; }
+
+    /* ─── Scrollbar ─── */
+    ::-webkit-scrollbar { width:5px; height:5px; }
+    ::-webkit-scrollbar-thumb { background:#e2e8f0; border-radius:3px; }
+
+    /* ─── Bottom nav safe area ─── */
+    .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+    .mb-bnav  { margin-bottom: 64px; }
+    @media (min-width:768px) { .mb-bnav { margin-bottom:0; } }
+
+    /* ─── Select custom ─── */
+    select { appearance:auto; }
+
+    /* ─── Icon helper (ใช้กับ SVG ที่ render จาก initIcons / ico()) ─── */
+    [data-lucide], svg[aria-hidden] { display:inline-block; vertical-align:middle; flex-shrink:0; }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen flex flex-col overflow-x-hidden">
+
+<!-- ═══════════ HEADER ═══════════ -->
+<header class="bg-slate-900 text-white sticky top-0 z-50 shadow-lg flex-shrink-0">
+  <div class="px-3 py-2.5 flex items-center gap-2.5 max-w-screen-2xl mx-auto">
+
+    <!-- Mobile: hamburger -->
+    <button id="sidebar-toggle" class="md:hidden w-10 h-10 flex items-center justify-center rounded-xl hover:bg-slate-700 active:bg-slate-600 flex-shrink-0" aria-label="เมนูจังหวัด">
+      <i data-lucide="menu" class="w-5 h-5"></i>
+    </button>
+
+    <!-- Logo -->
+    <div class="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center flex-shrink-0">
+      <i data-lucide="scale" class="w-4 h-4 text-white"></i>
+    </div>
+
+    <!-- Title -->
+    <div class="flex-1 min-w-0">
+      <h1 class="text-sm font-bold leading-tight truncate">ระบบข้อมูลทรัพย์บังคับคดี LED</h1>
+      <p class="text-slate-400 text-xs truncate" id="header-sub">กำลังโหลดข้อมูล...</p>
+    </div>
+
+    <!-- Desktop stats chips -->
+    <div class="hidden md:flex items-center gap-2 flex-shrink-0">
+      <span id="hd-total" class="bg-blue-600 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1">
+        <i data-lucide="database" class="w-3 h-3"></i> —
+      </span>
+      <span id="hd-provinces" class="bg-slate-700 text-slate-300 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1">
+        <i data-lucide="map-pin" class="w-3 h-3"></i> — จังหวัด
+      </span>
+    </div>
+
+    <!-- Upload button (desktop) -->
+    <button onclick="openUpload()" class="hidden md:flex bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded-lg items-center gap-1.5 transition-colors flex-shrink-0">
+      <i data-lucide="upload-cloud" class="w-3.5 h-3.5"></i>
+      เพิ่มข้อมูล
+    </button>
+
+    <!-- Mobile: search toggle -->
+    <button id="mobile-search-btn" class="md:hidden w-10 h-10 flex items-center justify-center rounded-xl hover:bg-slate-700 flex-shrink-0" onclick="toggleMobileSearch()">
+      <i data-lucide="search" class="w-5 h-5"></i>
+    </button>
+  </div>
+
+  <!-- Mobile search bar (hidden by default) -->
+  <div id="mobile-search-bar" class="hidden px-3 pb-2.5">
+    <div class="relative">
+      <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"></i>
+      <input id="f-search-mobile" type="search" placeholder="ค้นหา คดี / โจทก์ / จำเลย / โฉนด..."
+        class="w-full pl-9 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm placeholder-slate-500 outline-none focus:border-blue-400"/>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════ LAYOUT ═══════════ -->
+<div id="main-layout" class="flex flex-1 overflow-hidden" style="height:calc(100dvh - var(--header-h, 53px))">
+
+  <!-- ═══ SIDEBAR (province selector) ═══ -->
+  <aside id="sidebar"
+         class="w-60 bg-white border-r border-slate-100 flex-shrink-0 overflow-y-auto
+                fixed md:relative inset-y-0 left-0 z-40 md:z-auto
+                -translate-x-full md:translate-x-0"
+         style="top:var(--header-h, 53px); height:calc(100dvh - var(--header-h, 53px))">
+    <div class="p-3">
+      <!-- ทั้งหมด -->
+      <div class="sidebar-prov active" id="prov-all" onclick="selectProvince('')">
+        <i data-lucide="layout-grid" class="w-4 h-4 text-blue-500 flex-shrink-0"></i>
+        <span class="font-semibold">ทั้งหมด</span>
+        <span class="cnt font-semibold" id="prov-all-count">—</span>
+      </div>
+      <div class="border-t border-slate-100 my-2"></div>
+      <div id="province-list"></div>
+    </div>
+  </aside>
+
+  <!-- Sidebar overlay (mobile) -->
+  <div id="sidebar-overlay" class="fixed inset-0 bg-black/40 z-30 hidden md:hidden" onclick="closeSidebar()"></div>
+
+  <!-- ═══ MAIN CONTENT ═══ -->
+  <main class="flex-1 overflow-y-auto">
+    <div class="p-3 md:p-4 max-w-screen-xl mx-auto mb-bnav">
+
+      <!-- STATS ROW -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-4">
+        <div class="stat-card col-span-2 md:col-span-1">
+          <div class="flex items-center gap-2 mb-1">
+            <div class="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center">
+              <i data-lucide="trending-up" class="w-3.5 h-3.5 text-blue-500"></i>
+            </div>
+            <p class="text-xs text-slate-400 font-semibold">มูลค่าประเมินรวม</p>
+          </div>
+          <p id="st-price" class="text-xl font-bold text-slate-800">—</p>
+          <p class="text-xs text-slate-400">บาท</p>
+        </div>
+        <div class="stat-card">
+          <div class="flex items-center gap-2 mb-1">
+            <div class="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center">
+              <i data-lucide="home" class="w-3.5 h-3.5 text-blue-500"></i>
+            </div>
+            <p class="text-xs text-blue-500 font-semibold">ที่ดิน+สิ่งปลูก</p>
+          </div>
+          <p id="st-t1" class="text-xl font-bold text-slate-800">—</p>
+        </div>
+        <div class="stat-card">
+          <div class="flex items-center gap-2 mb-1">
+            <div class="w-7 h-7 bg-emerald-50 rounded-lg flex items-center justify-center">
+              <i data-lucide="trees" class="w-3.5 h-3.5 text-emerald-500"></i>
+            </div>
+            <p class="text-xs text-emerald-500 font-semibold">ที่ดินว่างเปล่า</p>
+          </div>
+          <p id="st-t2" class="text-xl font-bold text-slate-800">—</p>
+        </div>
+        <div class="stat-card">
+          <div class="flex items-center gap-2 mb-1">
+            <div class="w-7 h-7 bg-green-50 rounded-lg flex items-center justify-center">
+              <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-green-500"></i>
+            </div>
+            <p class="text-xs text-green-600 font-semibold">ขายได้แล้ว</p>
+          </div>
+          <p id="st-sold" class="text-xl font-bold text-slate-800">—</p>
+        </div>
+      </div>
+
+      <!-- ─── TYPE TABS (แสดงทุก screen ขนาด) ─── -->
+      <div class="bg-white rounded-xl shadow-sm px-3 py-2.5 mb-3 overflow-x-auto">
+        <div class="flex gap-1.5 min-w-max" id="f-type-btns">
+          <button class="fchip active" data-t=""><i data-lucide="layers" class="w-3 h-3"></i>ทั้งหมด</button>
+          <button class="fchip" data-t="ที่ดินพร้อมสิ่งปลูกสร้าง"><i data-lucide="home" class="w-3 h-3"></i>ที่ดิน+สิ่งปลูก</button>
+          <button class="fchip" data-t="ที่ดินว่างเปล่า"><i data-lucide="trees" class="w-3 h-3"></i>ว่างเปล่า</button>
+          <button class="fchip" data-t="ห้องชุด"><i data-lucide="building-2" class="w-3 h-3"></i>ห้องชุด</button>
+        </div>
+      </div>
+
+      <!-- ─── FILTER BAR (desktop) ─── -->
+      <div class="hidden md:block bg-white rounded-xl shadow-sm p-3 mb-4">
+        <div class="flex flex-wrap gap-2 items-center">
+          <!-- Search -->
+          <div class="relative flex-1 min-w-[200px]">
+            <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"></i>
+            <input id="f-search" type="text" placeholder="ค้นหา คดี / โจทก์ / จำเลย / โฉนด..."
+              class="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"/>
+          </div>
+          <!-- อำเภอ -->
+          <div class="relative">
+            <i data-lucide="map-pin" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none"></i>
+            <select id="f-amphur" class="pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-400 text-slate-600 bg-white">
+              <option value="">ทุกอำเภอ</option>
+            </select>
+          </div>
+          <!-- สถานะ -->
+          <div class="relative">
+            <i data-lucide="activity" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none"></i>
+            <select id="f-status" class="pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-400 text-slate-600 bg-white">
+              <option value="">ทุกสถานะ</option>
+              <option value="รอประมูล">รอประมูล</option>
+              <option value="ขายได้">ขายได้</option>
+              <option value="งดขายไม่มีผู้สู้ราคา">ไม่มีผู้สู้ราคา</option>
+              <option value="งดขาย">งดขาย</option>
+              <option value="เลื่อนนัด">เลื่อนนัด</option>
+            </select>
+          </div>
+          <!-- เรียง -->
+          <div class="relative">
+            <i data-lucide="arrow-up-down" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none"></i>
+            <select id="f-sort" class="pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-400 text-slate-600 bg-white">
+              <option value="default">เรียง: ค่าเริ่มต้น</option>
+              <option value="price_asc">ราคา น้อย→มาก</option>
+              <option value="price_desc">ราคา มาก→น้อย</option>
+              <option value="no_bidder">นัดพลาดมากสุด</option>
+              <option value="deposit_asc">เงินประกัน น้อย→มาก</option>
+            </select>
+          </div>
+          <span id="result-count" class="text-xs text-slate-400 whitespace-nowrap ml-auto"></span>
+        </div>
+      </div>
+
+      <!-- ─── FILTER BAR (mobile — collapsible) ─── -->
+      <div class="md:hidden mb-3">
+        <div class="flex items-center gap-2 mb-2">
+          <button id="filter-toggle-btn" onclick="toggleFilterDrawer()"
+            class="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 shadow-sm flex-1">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+            <span>กรองเพิ่มเติม</span>
+            <i data-lucide="chevron-down" id="filter-chevron" class="w-4 h-4 ml-auto transition-transform"></i>
+          </button>
+          <div class="relative flex-1">
+            <i data-lucide="arrow-up-down" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none"></i>
+            <select id="f-sort-m" class="w-full pl-8 pr-2 py-2 bg-white border border-slate-200 rounded-xl text-sm outline-none text-slate-600">
+              <option value="default">เรียงตาม</option>
+              <option value="price_asc">ราคา น้อย→มาก</option>
+              <option value="price_desc">ราคา มาก→น้อย</option>
+              <option value="no_bidder">นัดพลาดมากสุด</option>
+              <option value="deposit_asc">เงินประกัน น้อยสุด</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Collapsible filter drawer (mobile) -->
+        <div id="filter-drawer" class="collapsed bg-white rounded-xl border border-slate-100 shadow-sm">
+          <div class="p-3 space-y-3">
+            <!-- อำเภอ -->
+            <div>
+              <label class="text-xs font-semibold text-slate-500 flex items-center gap-1 mb-1.5">
+                <i data-lucide="map-pin" class="w-3 h-3"></i> อำเภอ/เขต
+              </label>
+              <select id="f-amphur-m" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none text-slate-600 bg-white">
+                <option value="">ทุกอำเภอ</option>
+              </select>
+            </div>
+            <!-- สถานะ -->
+            <div>
+              <label class="text-xs font-semibold text-slate-500 flex items-center gap-1 mb-1.5">
+                <i data-lucide="activity" class="w-3 h-3"></i> สถานะการขาย
+              </label>
+              <select id="f-status-m" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none text-slate-600 bg-white">
+                <option value="">ทุกสถานะ</option>
+                <option value="รอประมูล">รอประมูล</option>
+                <option value="ขายได้">ขายได้</option>
+                <option value="งดขายไม่มีผู้สู้ราคา">ไม่มีผู้สู้ราคา</option>
+                <option value="งดขาย">งดขาย</option>
+                <option value="เลื่อนนัด">เลื่อนนัด</option>
+              </select>
+            </div>
+            <!-- Result count + clear -->
+            <div class="flex items-center justify-between pt-1 border-t border-slate-100">
+              <span id="result-count-m" class="text-xs text-slate-400"></span>
+              <button onclick="clearFilters()" class="text-xs text-blue-500 flex items-center gap-1">
+                <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> ล้างตัวกรอง
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CARDS GRID -->
+      <div id="card-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mb-4"></div>
+
+      <!-- EMPTY STATE -->
+      <div id="empty-state" class="hidden text-center py-16">
+        <div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <i data-lucide="search-x" class="w-8 h-8 text-slate-400"></i>
+        </div>
+        <p class="text-slate-600 font-semibold">ไม่พบข้อมูลที่ตรงกับเงื่อนไข</p>
+        <p class="text-slate-400 text-sm mt-1">ลองเปลี่ยนตัวกรองหรือเลือกจังหวัดอื่น</p>
+        <button onclick="clearFilters()" class="mt-4 inline-flex items-center gap-1.5 text-blue-500 text-sm font-medium hover:underline">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> ล้างตัวกรองทั้งหมด
+        </button>
+      </div>
+
+      <!-- LOADER -->
+      <div id="loader" class="flex flex-col items-center justify-center py-24 gap-3">
+        <div class="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+        <p class="text-sm text-slate-400">กำลังโหลดข้อมูล...</p>
+      </div>
+
+      <!-- PAGINATION -->
+      <div id="pagination" class="hidden py-4"></div>
+    </div>
+  </main>
+</div>
+
+<!-- ═══════════ BOTTOM NAV (mobile only) ═══════════ -->
+<nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 pb-safe">
+  <div class="grid grid-cols-4 h-16">
+    <button onclick="selectProvince(''); closeSidebar()" class="flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-blue-600">
+      <i data-lucide="map" class="w-5 h-5"></i>
+      <span class="text-[10px] font-medium">ทั้งหมด</span>
+    </button>
+    <button id="bnav-province" onclick="toggleSidebar()" class="flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-blue-600">
+      <i data-lucide="map-pin" class="w-5 h-5"></i>
+      <span class="text-[10px] font-medium">จังหวัด</span>
+    </button>
+    <button onclick="toggleFilterDrawer()" class="flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-blue-600">
+      <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
+      <span class="text-[10px] font-medium">กรอง</span>
+    </button>
+    <button onclick="openUpload()" class="flex flex-col items-center justify-center gap-1 text-emerald-600">
+      <i data-lucide="upload-cloud" class="w-5 h-5"></i>
+      <span class="text-[10px] font-medium">เพิ่มข้อมูล</span>
+    </button>
+  </div>
+</nav>
+
+<!-- ═══════════ DETAIL PANEL ═══════════ -->
+<div id="panel-overlay" class="fixed inset-0 bg-black/40 z-50 hidden" onclick="closePanel()"></div>
+<aside id="detail-panel"
+       class="fixed z-50 bg-white shadow-2xl overflow-y-auto
+              bottom-0 left-0 right-0 rounded-t-2xl md:rounded-none
+              md:right-0 md:top-0 md:bottom-auto md:left-auto md:h-full md:w-[480px]
+              hidden translate-y-full md:translate-y-0 md:translate-x-full">
+  <!-- Handle bar (mobile) -->
+  <div class="md:hidden flex justify-center pt-3 pb-1">
+    <div class="w-10 h-1 bg-slate-200 rounded-full"></div>
+  </div>
+  <!-- Header -->
+  <div class="sticky top-0 bg-white/95 backdrop-blur border-b border-slate-100 px-4 py-3 flex items-center gap-3">
+    <button onclick="closePanel()" class="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100 text-slate-500 flex-shrink-0">
+      <i data-lucide="arrow-left" class="w-4 h-4 md:hidden"></i>
+      <i data-lucide="x" class="w-4 h-4 hidden md:block"></i>
+    </button>
+    <p class="font-bold text-slate-800 text-sm flex-1 truncate" id="panel-title">รายละเอียด</p>
+  </div>
+  <div id="panel-body" class="p-4 pb-8"></div>
+</aside>
+
+<!-- ═══════════ UPLOAD MODAL ═══════════ -->
+<div id="upload-overlay" class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center p-4" style="display:none">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <!-- Header -->
+    <div class="flex items-center gap-3 p-5 border-b border-slate-100">
+      <div class="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center">
+        <i data-lucide="upload-cloud" class="w-5 h-5 text-emerald-600"></i>
+      </div>
+      <h3 class="font-bold text-slate-800 flex-1">เพิ่มข้อมูล CSV</h3>
+      <button onclick="closeUpload()" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+    <div class="p-5 space-y-4">
+      <!-- Drop zone -->
+      <div id="upload-zone" class="upload-zone p-8 text-center cursor-pointer"
+           onclick="document.getElementById('file-input').click()"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="handleDrop(event)">
+        <div class="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
+          <i data-lucide="folder-open" class="w-7 h-7 text-blue-500"></i>
+        </div>
+        <p class="text-sm font-semibold text-slate-700">ลากไฟล์ CSV มาวางที่นี่</p>
+        <p class="text-xs text-slate-400 mt-1">หรือ <span class="text-blue-500 underline">คลิกเพื่อเลือกไฟล์</span></p>
+        <p class="text-xs text-slate-300 mt-2">led_data_จังหวัด_วันที่.csv</p>
+      </div>
+      <input id="file-input" type="file" accept=".csv" multiple class="hidden" onchange="uploadFiles(this.files)"/>
+
+      <div id="upload-result" class="hidden"></div>
+
+      <!-- Scraper hint -->
+      <div class="bg-slate-50 rounded-xl p-4 space-y-2">
+        <p class="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
+          <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
+          วิธีใช้ Scraper
+        </p>
+        <code class="block bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-700">python scraper.py กระบี่</code>
+        <code class="block bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-700">python scraper.py เชียงใหม่ ภูเก็ต</code>
+        <code class="block bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-700">python scraper.py all</code>
+        <p class="text-xs text-slate-400 flex items-center gap-1">
+          <i data-lucide="folder" class="w-3 h-3"></i>
+          ไฟล์บันทึกใน <code class="font-mono bg-white px-1 rounded">data/</code> อัตโนมัติ
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ JAVASCRIPT ═══════════ -->
+<script>
+// ── HEADER HEIGHT → CSS VARIABLE ──
+function syncHeaderHeight() {
+  const h = document.querySelector('header')?.offsetHeight || 56;
+  document.documentElement.style.setProperty('--header-h', h + 'px');
+}
+// ใช้ requestAnimationFrame เพื่อให้ browser paint styles ก่อนวัด
+requestAnimationFrame(() => { syncHeaderHeight(); requestAnimationFrame(syncHeaderHeight); });
+window.addEventListener('resize', syncHeaderHeight);
+
+// ── ICON WRAPPER (ใช้ initIcons แทน Lucide CDN) ──
+function tryIcons() { initIcons(); }
+
+// ── STATE ──
+const state = { province:'', type:'', amphur:'', status:'', search:'', sort:'default', page:1 };
+let debounceTimer = null;
+let filterDrawerOpen = false;
+let allProvinceData  = {};
+
+// ── STATUS CONFIG ──
+const SS = {
+  'ขายได้':              {bg:'bg-green-100', tx:'text-green-700', dot:'bg-green-500',  ico:'check-circle-2'},
+  'งดขายไม่มีผู้สู้ราคา':{bg:'bg-amber-100', tx:'text-amber-700', dot:'bg-amber-400',  ico:'alert-triangle'},
+  'งดขาย':              {bg:'bg-red-100',   tx:'text-red-600',   dot:'bg-red-400',    ico:'x-circle'},
+  'เลื่อนนัด':           {bg:'bg-sky-100',   tx:'text-sky-700',   dot:'bg-sky-400',    ico:'clock'},
+  'ถอนการขาย':           {bg:'bg-purple-100',tx:'text-purple-700',dot:'bg-purple-400', ico:'ban'},
+  'รอดำเนินการ':         {bg:'bg-blue-50',   tx:'text-blue-600',  dot:'bg-blue-300',   ico:'loader'},
+  'ยังไม่ถึงนัด':        {bg:'bg-slate-100', tx:'text-slate-400', dot:'bg-slate-300',  ico:'circle'},
+  'รอประมูล':            {bg:'bg-indigo-50', tx:'text-indigo-600',dot:'bg-indigo-400', ico:'play-circle'},
+};
+const getS = s => SS[s] || SS['ยังไม่ถึงนัด'];
+
+const TS = {
+  'ที่ดินพร้อมสิ่งปลูกสร้าง': {bg:'bg-blue-50',   tx:'text-blue-700',   ico:'home'},
+  'ที่ดินว่างเปล่า':           {bg:'bg-emerald-50',tx:'text-emerald-700',ico:'trees'},
+  'ห้องชุด':                  {bg:'bg-purple-50', tx:'text-purple-700', ico:'building-2'},
+};
+const getT = t => TS[t] || {bg:'bg-slate-50', tx:'text-slate-600', ico:'layers'};
+
+// ── ICON SYSTEM (ไม่ต้องพึ่ง CDN เลย) ──
+// ico(name, cls) → inline SVG string สำหรับใช้ใน dynamic HTML
+// initIcons()    → แทนที่ [data-lucide] ทั้งหมดใน DOM ด้วย inline SVG
+function ico(name, cls='w-3.5 h-3.5') {
+  const paths = {
+    // ─── Navigation / UI ───
+    'menu':           '<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
+    'x':              '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    'arrow-left':     '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+    'chevron-down':   '<path d="m6 9 6 6 6-6"/>',
+    'search':         '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    'search-x':       '<path d="m13.5 8.5-5 5"/><path d="m8.5 8.5 5 5"/><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    'refresh-cw':     '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+    'upload-cloud':   '<polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>',
+    'layout-grid':    '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
+    'sliders-horizontal': '<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
+    'arrow-up-down':  '<path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/>',
+    // ─── Location / Map ───
+    'map-pin':        '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+    'map':            '<polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" x2="9" y1="3" y2="18"/><line x1="15" x2="15" y1="6" y2="21"/>',
+    'external-link':  '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+    // ─── Property types ───
+    'home':           '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+    'trees':          '<path d="M10 10v.2A3 3 0 0 1 8.9 16H5a3 3 0 0 1-1-5.8V10a3 3 0 0 1 6 0Z"/><path d="M7 16v6"/><path d="M13 19v3"/><path d="M12 19h8.3a1 1 0 0 0 .7-1.7L18 14h.3a1 1 0 0 0 .7-1.7L16 9h.2a1 1 0 0 0 .8-1.7L13 3l-1.4 1.5"/>',
+    'building-2':     '<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
+    'layers':         '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m6.08 9.5-3.5 1.6a1 1 0 0 0 0 1.81l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.5-1.59"/><path d="m6.08 14.5-3.5 1.6a1 1 0 0 0 0 1.81l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9a1 1 0 0 0 0-1.83l-3.5-1.59"/>',
+    // ─── Status ───
+    'check-circle-2': '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    'check-circle':   '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+    'alert-triangle': '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    'alert-circle':   '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+    'x-circle':       '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>',
+    'clock':          '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    'ban':            '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>',
+    'loader':         '<line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>',
+    'circle':         '<circle cx="12" cy="12" r="10"/>',
+    'play-circle':    '<circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>',
+    'activity':       '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+    'trending-up':    '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+    // ─── Data / Finance ───
+    'database':       '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>',
+    'coins':          '<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/>',
+    'shield':         '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+    // ─── Document / Fields ───
+    'file-text':      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>',
+    'hash':           '<line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/>',
+    'ruler':          '<path d="M21.3 8.7 8.7 21.3c-1 1-2.5 1-3.4 0l-2.6-2.6c-1-1-1-2.5 0-3.4L15.3 2.7c1-1 2.5-1 3.4 0l2.6 2.6c1 1 1 2.5 0 3.4Z"/><path d="m7.5 10.5 2 2"/><path d="m10.5 7.5 2 2"/><path d="m13.5 4.5 2 2"/><path d="m4.5 13.5 2 2"/>',
+    'calendar':       '<rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>',
+    'image':          '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+    'folder':         '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+    'folder-open':    '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
+    'terminal':       '<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>',
+    // ─── People ───
+    'user':           '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    'phone':          '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12 19.79 19.79 0 0 1 1.07 3.38 2 2 0 0 1 3.07 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 16.92z"/>',
+    // ─── Branding ───
+    'scale':          '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21H17"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
+  };
+  const d = paths[name] || `<circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+}
+
+// แทนที่ทุก <i data-lucide="..."> ใน DOM ด้วย inline SVG จาก ico()
+// preserves id, style และ attributes อื่นๆ ที่ JS อาจ query
+function initIcons() {
+  document.querySelectorAll('[data-lucide]').forEach(el => {
+    const name = el.getAttribute('data-lucide');
+    const cls  = el.getAttribute('class') || 'w-4 h-4';
+    const tmp  = document.createElement('span');
+    tmp.innerHTML = ico(name, cls);
+    const svg = tmp.firstElementChild;
+    if (!svg) return;
+    // copy id, style และ attributes อื่นๆ (ยกเว้น class และ data-lucide ที่จัดการแล้ว)
+    for (const attr of el.attributes) {
+      if (attr.name !== 'class' && attr.name !== 'data-lucide') {
+        svg.setAttribute(attr.name, attr.value);
+      }
+    }
+    el.replaceWith(svg);
+  });
+}
+
+// ── FETCH DATA ──
+async function fetchData(resetPage=false) {
+  if (resetPage) state.page = 1;
+  document.getElementById('loader').classList.remove('hidden');
+  document.getElementById('card-grid').innerHTML = '';
+  document.getElementById('empty-state').classList.add('hidden');
+  document.getElementById('pagination').classList.add('hidden');
+
+  const params = new URLSearchParams({
+    province:state.province, type:state.type, amphur:state.amphur,
+    status:state.status, search:state.search, sort:state.sort,
+    page:state.page, per_page:48,
+  });
+
+  try {
+    const res  = await fetch(`/api/data?${params}`);
+    const data = await res.json();
+    renderStats(data.stats);
+    renderCards(data.properties);
+    renderPagination(data.page, data.total_pages, data.total);
+    const cnt = `แสดง ${data.total.toLocaleString()} รายการ`;
+    document.getElementById('result-count').textContent   = cnt;
+    document.getElementById('result-count-m').textContent = cnt;
+    buildAmphurFilter(data.stats.amphur_counts);
+  } catch(e) { console.error(e); }
+  finally {
+    document.getElementById('loader').classList.add('hidden');
+    tryIcons();
+  }
+}
+
+async function fetchProvinces() {
+  const res  = await fetch('/api/provinces');
+  const data = await res.json();
+  allProvinceData = data;
+  renderSidebar(data);
+  const total = Object.values(data.province_counts).reduce((a,b)=>a+b,0);
+  document.getElementById('prov-all-count').textContent = total.toLocaleString();
+  document.getElementById('hd-provinces').textContent =
+    `${data.total_provinces_with_data}/${data.total_provinces} จังหวัด`;
+  tryIcons();
+}
+
+// ── STATS ──
+function renderStats(s) {
+  const f = n => Number(n).toLocaleString();
+  document.getElementById('st-price').textContent = f(s.total_price);
+  document.getElementById('st-t1').textContent    = f(s.type_counts['ที่ดินพร้อมสิ่งปลูกสร้าง']||0);
+  document.getElementById('st-t2').textContent    = f(s.type_counts['ที่ดินว่างเปล่า']||0);
+  document.getElementById('st-sold').textContent  = f(s.status_counts['ขายได้']||0);
+  const tot = Object.values(s.type_counts).reduce((a,b)=>a+b,0);
+  document.getElementById('hd-total').innerHTML =
+    `${ico('database','w-3 h-3 inline')} ${tot.toLocaleString()}`;
+}
+
+// ── SIDEBAR ──
+function renderSidebar(data) {
+  let html = '';
+  for (const [region, provs] of Object.entries(data.by_region)) {
+    html += `<div class="region-head">${region}</div>`;
+    for (const p of provs) {
+      const dot = p.has_data ? 'bg-emerald-400' : 'bg-slate-200';
+      html += `
+        <div class="sidebar-prov" id="prov-${p.name}" onclick="selectProvince('${p.name}')">
+          <span class="sdot ${dot}"></span>
+          <span class="truncate">${p.name}</span>
+          <span class="cnt">${p.has_data ? p.count.toLocaleString() : '—'}</span>
+        </div>`;
+    }
+  }
+  document.getElementById('province-list').innerHTML = html;
+}
+
+function selectProvince(prov) {
+  state.province = prov; state.page = 1; state.amphur = '';
+  document.getElementById('f-amphur').value   = '';
+  document.getElementById('f-amphur-m').value = '';
+  document.querySelectorAll('.sidebar-prov').forEach(e => e.classList.remove('active'));
+  const t = prov ? document.getElementById(`prov-${prov}`) : document.getElementById('prov-all');
+  if (t) t.classList.add('active');
+  closeSidebar();
+  fetchData(true);
+}
+
+function buildAmphurFilter(counts) {
+  ['f-amphur','f-amphur-m'].forEach(id => {
+    const sel = document.getElementById(id);
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">ทุกอำเภอ</option>';
+    Object.entries(counts).sort((a,b)=>b[1]-a[1]).forEach(([k,v]) => {
+      const o = document.createElement('option');
+      o.value = k; o.textContent = `${k} (${v.toLocaleString()})`;
+      sel.appendChild(o);
+    });
+    sel.value = cur;
+  });
+}
+
+// ── CARDS ──
+function renderCards(props) {
+  const grid = document.getElementById('card-grid');
+  if (!props.length) { document.getElementById('empty-state').classList.remove('hidden'); return; }
+  grid.innerHTML = props.map(cardHTML).join('');
+}
+
+function cardHTML(p) {
+  const ts = getT(p['ประเภท']);
+  const cs = getS(p['current_status']);
+  const loc = [p['ตำบล'], p['อำเภอ']].filter(x=>x&&x!=='-').join(' · ');
+  const pname = (!state.province && p['จังหวัด']) ? p['จังหวัด'] : '';
+
+  const dots = p.auctions.slice(0,6).map(a => {
+    const s = getS(a.status);
+    return `<div class="tt-wrap relative"><span class="sdot ${s.dot} cursor-default w-2.5 h-2.5"></span>
+      <div class="tt">นัด${a.round}: ${a.date}<br/>${a.status}</div></div>`;
+  }).join('');
+
+  const imgTag = p['รูปภาพ']
+    ? `<img src="${p['รูปภาพ']}" class="w-full h-40 object-cover" loading="lazy"
+           onerror="this.outerHTML='<div class=\\'w-full h-40 img-ph flex items-center justify-center\\'>${ico('home','w-10 h-10 text-slate-300')}</div>'">`
+    : `<div class="w-full h-40 img-ph flex items-center justify-center">${ico('home','w-10 h-10 text-slate-300')}</div>`;
+
+  return `
+  <div class="bg-white rounded-xl shadow-sm overflow-hidden card-hover cursor-pointer border border-slate-100 flex flex-col"
+       onclick='openPanel(${JSON.stringify(p).replace(/'/g,"&#39;")})'>
+    <div class="relative flex-shrink-0">
+      ${imgTag}
+      <span class="absolute top-2 left-2 badge ${ts.bg} ${ts.tx}">${ico(ts.ico,'w-3 h-3')}${p['ประเภท']||'ไม่ระบุ'}</span>
+      ${p.no_bidder_rounds>=3?`<span class="absolute top-2 right-2 badge bg-amber-500 text-white">${ico('alert-triangle','w-3 h-3')}พลาด ${p.no_bidder_rounds} นัด</span>`:''}
+    </div>
+    <div class="p-3 flex flex-col flex-1">
+      <div class="flex items-start justify-between gap-1 mb-1.5">
+        <p class="font-semibold text-slate-800 text-sm leading-snug flex-1">${p['คดีแดง']||'—'}</p>
+        <span class="badge ${cs.bg} ${cs.tx} flex-shrink-0 ml-1">${p['current_status']}</span>
+      </div>
+      ${loc||pname ? `<p class="text-xs text-slate-400 flex items-center gap-1 mb-1">${ico('map-pin','w-3 h-3 flex-shrink-0')}${[loc,pname].filter(Boolean).join(' · ')}</p>` : ''}
+      <p class="text-xs text-slate-300 flex items-center gap-1 mb-2.5">${ico('hash','w-3 h-3')}โฉนด ${p['โฉนดเลขที่']||'—'}</p>
+      <div class="mt-auto">
+        <p class="text-lg font-bold text-blue-600 leading-none">${p['ราคา_text']} <span class="text-xs font-normal text-slate-400">บาท</span></p>
+        <p class="text-xs text-slate-400 mt-0.5 flex items-center gap-1">${ico('shield','w-3 h-3')}ประกัน <span class="font-semibold text-slate-600">${p['เงินประกัน_text']} บาท</span></p>
+        ${p.auctions.length?`<div class="flex gap-1 mt-2 items-center">${dots}<span class="text-xs text-slate-300 ml-1">${p.total_rounds} นัด</span></div>`:''}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── PAGINATION ──
+function renderPagination(page, totalPages, total) {
+  const el = document.getElementById('pagination');
+  if (totalPages<=1) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+
+  const btn = (p,lbl,dis=false,act=false) =>
+    `<button onclick="goPage(${p})" class="min-w-[36px] h-9 px-2 rounded-lg text-sm font-medium transition-colors
+      ${act?'bg-blue-600 text-white':'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}
+      ${dis?'opacity-40 pointer-events-none':''}">${lbl}</button>`;
+
+  let html = btn(page-1,'‹',page===1);
+  const r=[];
+  for(let i=Math.max(1,page-2);i<=Math.min(totalPages,page+2);i++) r.push(i);
+  if(r[0]>1){html+=btn(1,'1');if(r[0]>2)html+=`<span class="text-slate-300 px-1">…</span>`;}
+  r.forEach(p=>{ html+=btn(p,p,false,p===page); });
+  if(r[r.length-1]<totalPages){if(r[r.length-1]<totalPages-1)html+=`<span class="text-slate-300 px-1">…</span>`;html+=btn(totalPages,totalPages);}
+  html += btn(page+1,'›',page===totalPages);
+
+  el.innerHTML = `<div class="flex items-center justify-center gap-1.5 flex-wrap">
+    ${html}
+    <span class="text-xs text-slate-400 ml-2">หน้า ${page}/${totalPages} · ${total.toLocaleString()} รายการ</span>
+  </div>`;
+}
+
+function goPage(p) {
+  state.page = p;
+  fetchData(false);
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+// ── DETAIL PANEL ──
+function openPanel(p) {
+  document.getElementById('panel-title').textContent = `คดีแดง ${p['คดีแดง']}`;
+  document.getElementById('panel-body').innerHTML = panelHTML(p);
+  document.getElementById('panel-overlay').classList.remove('hidden');
+  const panel = document.getElementById('detail-panel');
+  panel.classList.remove('hidden');
+  // Small delay to trigger CSS transition
+  requestAnimationFrame(() => {
+    panel.classList.add('show');
+    panel.classList.add('sheet-in');
+  });
+  document.body.style.overflow = 'hidden';
+  tryIcons({ attrs: { class: ['w-4', 'h-4'] } });
+}
+function closePanel() {
+  document.getElementById('panel-overlay').classList.add('hidden');
+  const panel = document.getElementById('detail-panel');
+  panel.classList.remove('show','sheet-in');
+  panel.classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+function panelHTML(p) {
+  const ts = getT(p['ประเภท']);
+  const row = (icon,l,v,cls='') => (v&&v!=='-'&&v!='')
+    ? `<div class="flex gap-2.5 py-2 border-b border-slate-50 items-start">
+         <span class="text-slate-400 mt-0.5 flex-shrink-0">${ico(icon,'w-3.5 h-3.5')}</span>
+         <span class="text-xs text-slate-400 w-28 flex-shrink-0 pt-0.5">${l}</span>
+         <span class="text-sm text-slate-700 font-medium flex-1 ${cls}">${v}</span>
+       </div>` : '';
+  const sh = (icon,title,color='text-slate-700') =>
+    `<div class="flex items-center gap-2 mt-5 mb-2.5">
+       <span class="${color.replace('text','bg').replace('700','100')} w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0">${ico(icon,`w-3.5 h-3.5 ${color}`)}</span>
+       <h3 class="font-bold ${color} text-sm">${title}</h3>
+     </div>`;
+
+  const aRows = p.auctions.map(a => {
+    const s = getS(a.status);
+    return `<div class="flex items-center gap-3 py-2.5 border-b border-slate-50">
+      <div class="w-7 h-7 rounded-full ${s.bg} ${s.tx} flex items-center justify-center text-xs font-bold flex-shrink-0">${a.round}</div>
+      <div class="flex-1">
+        <p class="text-sm font-medium text-slate-700">${a.date}</p>
+      </div>
+      <span class="badge ${s.bg} ${s.tx}">${ico(s.ico,'w-3 h-3')}${a.status}</span>
+    </div>`;
+  }).join('') || `<p class="text-sm text-slate-400 py-2">ไม่มีข้อมูลนัดประมูล</p>`;
+
+  return `
+    ${p['รูปภาพ']?`<img src="${p['รูปภาพ']}" class="w-full h-52 object-cover rounded-xl mb-4" loading="lazy" onerror="this.style.display='none'">` : ''}
+
+    ${sh('scale','ข้อมูลคดี','text-slate-700')}
+    <div class="bg-slate-50 rounded-xl p-3">
+      ${row('hash','คดีแดง',p['คดีแดง'],'font-bold text-slate-900 text-base')}
+      ${row('user','โจทก์',p['โจทก์'])}
+      ${row('user','จำเลย',p['จำเลย'])}
+      ${row('shield','ศาล',p['ศาล'])}
+    </div>
+
+    ${sh('home','ข้อมูลทรัพย์','text-slate-700')}
+    <div class="bg-slate-50 rounded-xl p-3">
+      <span class="badge ${ts.bg} ${ts.tx} mb-3 inline-flex">${ico(ts.ico,'w-3 h-3')}${p['ประเภท']}</span>
+      ${row('hash','โฉนดเลขที่',p['โฉนดเลขที่'])}
+      ${row('file-text','เอกสารสิทธิ์',p['เอกสารสิทธิ์'])}
+      ${row('hash','บ้านเลขที่',p['บ้านเลขที่'])}
+      ${row('map-pin','ตำบล',p['ตำบล'])}
+      ${row('map-pin','อำเภอ',p['อำเภอ'])}
+      ${row('map-pin','จังหวัด',p['จังหวัด'])}
+      ${row('ruler','เนื้อที่',p['เนื้อที่'])}
+      ${row('user','เจ้าของ',p['เจ้าของ'])}
+    </div>
+
+    ${sh('coins','ราคาและเงินประกัน','text-blue-700')}
+    <div class="bg-blue-50 rounded-xl p-4">
+      <p class="text-2xl font-bold text-blue-700 leading-none">${p['ราคา_text']} <span class="text-sm font-normal text-slate-500">บาท</span></p>
+      <p class="text-xs text-slate-500 mt-0.5">ราคาประเมิน</p>
+      <div class="mt-3 pt-3 border-t border-blue-100 flex items-center gap-2">
+        <span class="text-sm text-slate-600">เงินหลักประกัน</span>
+        <span class="text-sm font-bold text-slate-800 ml-auto">${p['เงินประกัน_text']} บาท</span>
+      </div>
+    </div>
+
+    ${sh('calendar',`กำหนดนัดประมูล (${p.total_rounds} นัด)`,'text-slate-700')}
+    <div class="bg-slate-50 rounded-xl p-3">${aRows}</div>
+
+    ${sh('file-text','ข้อมูลเพิ่มเติม','text-slate-700')}
+    <div class="bg-slate-50 rounded-xl p-3">
+      ${row('calendar','วันที่ตรวจสอบ',p['วันที่ตรวจสอบ'])}
+      ${row('phone','โทรศัพท์',p['โทรศัพท์'])}
+      ${row('hash','รหัสทรัพย์',p['รหัสทรัพย์'])}
+      <div class="mt-3 flex flex-col gap-2">
+        ${p['แผนที่']?`<a href="${p['แผนที่']}" target="_blank" rel="noopener"
+          class="inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:underline">
+          ${ico('map-pin','w-4 h-4')} เปิดแผนที่ Google Maps ${ico('external-link','w-3.5 h-3.5')}
+        </a>` : ''}
+        ${p['รูปภาพ']?`<a href="${p['รูปภาพ']}" target="_blank" rel="noopener"
+          class="inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:underline">
+          ${ico('image','w-4 h-4')} ดูรูปภาพขนาดเต็ม ${ico('external-link','w-3.5 h-3.5')}
+        </a>` : ''}
+      </div>
+    </div>
+    <div class="h-8"></div>`;
+}
+
+// ── UPLOAD ──
+function openUpload() {
+  const el = document.getElementById('upload-overlay');
+  el.style.display = 'flex';
+  tryIcons();
+}
+function closeUpload() { document.getElementById('upload-overlay').style.display = 'none'; }
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.remove('drag-over');
+  uploadFiles(e.dataTransfer.files);
+}
+
+async function uploadFiles(files) {
+  const fd = new FormData();
+  let count = 0;
+  for (const f of files) { fd.append('files', f); count++; }
+  if (!count) return;
+
+  const btn = document.querySelector('#upload-zone');
+  btn.innerHTML = `<div class="animate-spin w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full mx-auto"></div><p class="text-sm text-slate-500 mt-2">กำลังอัปโหลด...</p>`;
+
+  const res  = await fetch('/api/upload', {method:'POST', body:fd});
+  const data = await res.json();
+  const el   = document.getElementById('upload-result');
+  el.classList.remove('hidden');
+
+  if (data.saved.length) {
+    el.innerHTML = `<div class="bg-green-50 border border-green-200 rounded-xl p-3 text-green-700 text-sm flex items-start gap-2">
+      ${ico('check-circle-2','w-4 h-4 flex-shrink-0 mt-0.5')}
+      <div>อัปโหลดสำเร็จ ${data.saved.length} ไฟล์<br>
+      ${data.saved.map(f=>`<code class="text-xs bg-green-100 px-1 rounded">${f}</code>`).join('<br>')}</div>
+    </div>`;
+    setTimeout(() => { fetchProvinces(); fetchData(true); closeUpload(); }, 1800);
+  }
+  if (data.errors.length) {
+    el.innerHTML += `<div class="bg-red-50 border border-red-200 rounded-xl p-3 text-red-700 text-sm mt-2 flex items-start gap-2">
+      ${ico('x-circle','w-4 h-4 flex-shrink-0 mt-0.5')}
+      <div>${data.errors.join('<br>')}</div>
+    </div>`;
+  }
+}
+
+// ── SIDEBAR MOBILE ──
+function toggleSidebar() {
+  const sidebar  = document.getElementById('sidebar');
+  const overlay  = document.getElementById('sidebar-overlay');
+  const isHidden = sidebar.classList.contains('-translate-x-full');
+  sidebar.classList.toggle('-translate-x-full', !isHidden);
+  overlay.classList.toggle('hidden', !isHidden);
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.add('-translate-x-full');
+  document.getElementById('sidebar-overlay').classList.add('hidden');
+}
+document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
+
+// ── MOBILE SEARCH ──
+function toggleMobileSearch() {
+  const bar = document.getElementById('mobile-search-bar');
+  bar.classList.toggle('hidden');
+  if (!bar.classList.contains('hidden'))
+    document.getElementById('f-search-mobile').focus();
+  // header สูงขึ้นเมื่อ search bar เปิด — อัปเดต layout
+  requestAnimationFrame(syncHeaderHeight);
+}
+
+// ── FILTER DRAWER (mobile) ──
+function toggleFilterDrawer() {
+  filterDrawerOpen = !filterDrawerOpen;
+  const d = document.getElementById('filter-drawer');
+  const c = document.getElementById('filter-chevron');
+  d.classList.toggle('collapsed', !filterDrawerOpen);
+  d.classList.toggle('expanded', filterDrawerOpen);
+  if (c) c.style.transform = filterDrawerOpen ? 'rotate(180deg)' : '';
+}
+
+// ── FILTER EVENTS ──
+function syncFilters(src) {
+  // sync desktop ↔ mobile filter values
+  const peers = { 'f-amphur':'f-amphur-m', 'f-amphur-m':'f-amphur',
+                  'f-status':'f-status-m', 'f-status-m':'f-status',
+                  'f-sort':'f-sort-m',     'f-sort-m':'f-sort' };
+  if (peers[src]) {
+    const val = document.getElementById(src).value;
+    document.getElementById(peers[src]).value = val;
+  }
+}
+
+const onSearch = e => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => { state.search = e.target.value; fetchData(true); }, 350);
+};
+document.getElementById('f-search').addEventListener('input', onSearch);
+document.getElementById('f-search-mobile').addEventListener('input', e => {
+  document.getElementById('f-search').value = e.target.value;
+  onSearch(e);
+});
+
+['f-amphur','f-amphur-m'].forEach(id => {
+  document.getElementById(id).addEventListener('change', e => {
+    state.amphur = e.target.value; syncFilters(id); fetchData(true);
+  });
+});
+['f-status','f-status-m'].forEach(id => {
+  document.getElementById(id).addEventListener('change', e => {
+    state.status = e.target.value; syncFilters(id); fetchData(true);
+  });
+});
+['f-sort','f-sort-m'].forEach(id => {
+  document.getElementById(id).addEventListener('change', e => {
+    state.sort = e.target.value; syncFilters(id); fetchData(true);
+  });
+});
+
+// Type chips (single shared row)
+document.getElementById('f-type-btns').querySelectorAll('.fchip').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.getElementById('f-type-btns').querySelectorAll('.fchip').forEach(b =>
+      b.classList.toggle('active', b.dataset.t === btn.dataset.t));
+    state.type = btn.dataset.t;
+    fetchData(true);
+  });
+});
+
+function clearFilters() {
+  Object.assign(state, {province:'', type:'', amphur:'', status:'', search:'', sort:'default', page:1});
+  ['f-search','f-search-mobile'].forEach(id => { document.getElementById(id).value=''; });
+  ['f-amphur','f-amphur-m'].forEach(id => { document.getElementById(id).value=''; });
+  ['f-status','f-status-m'].forEach(id => { document.getElementById(id).value=''; });
+  ['f-sort','f-sort-m'].forEach(id => { document.getElementById(id).value='default'; });
+  document.getElementById('f-type-btns').querySelectorAll('.fchip').forEach(b =>
+    b.classList.toggle('active', b.dataset.t===''));
+  document.querySelectorAll('.sidebar-prov').forEach(e => e.classList.remove('active'));
+  document.getElementById('prov-all').classList.add('active');
+  fetchData(true);
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closePanel(); closeUpload(); }
+  if ((e.metaKey||e.ctrlKey) && e.key==='k') { e.preventDefault(); toggleMobileSearch(); document.getElementById('f-search').focus(); }
+});
+
+// ── INIT ──
+(async () => {
+  tryIcons();
+  await fetchProvinces();
+  await fetchData();
+})();
+</script>
+</body>
+</html>

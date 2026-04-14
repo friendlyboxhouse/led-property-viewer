@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# Secrets / IP tracking
+.home_ip
+.env.local
+
+# Debug / dev files
+debug_*.html
+debug_*.png
+debug_row.py
+analyze_detail.py
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# NOTE: data/ ไม่ได้ถูก ignore เพราะ Vercel ต้องการ CSV เหล่านี้ในการ serve ข้อมูล
